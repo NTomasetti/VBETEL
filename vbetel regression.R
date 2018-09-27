@@ -1,4 +1,5 @@
 library(tidyverse)
+library(VBfunctions)
 
 N <- 250
 z <- rnorm(N, 0.5, 1)
@@ -21,7 +22,9 @@ hLinReg <- function(lam, g){
   mean(exp(lam %*% t(g)))
 }
 
-density <- function(y, z, theta, lambdaStart = rep(0.1, 4)){
+density <- function(data, theta){
+  y <- data[,1]
+  z <- data[,2]
   alpha <- theta[1]
   beta <- theta[2] 
   nu <- theta[3]
@@ -33,113 +36,63 @@ density <- function(y, z, theta, lambdaStart = rep(0.1, 4)){
   g4 <- g1^2 - sig
   g <- cbind(g1, g2, g3, g4)
   
-  lambdaHat <- nlm(hLinReg, lambdaStart, g = g)$estimate
+  lambdaHat <- nlm(hLinReg, rep(0, 4), g = g)$estimate
   
 
   exponent <- c(exp(lambdaHat %*% t(g)))
+  sum(lambdaHat %*% t(g)) - length(y) * log(sum(exponent))
   
-  list(dens = sum(lambdaHat %*% t(g)) - length(y) * log(sum(exponent)),
-       lambdaHat = lambdaHat)
+#  list(dens = sum(lambdaHat %*% t(g)) - length(y) * log(sum(exponent)),
+ #      lambdaHat = lambdaHat)
 }
 
+draw <- c(alpha = 0, beta = 1, nu = -1, `sigma^{2}` = 2)
+betelMCMC <- metropolisHastings(start = draw, 
+                                iter = 10000, 
+                                model = density,
+                                data = cbind(y, z))
 
-
-reps <- 10000
-betelMCMC <- matrix(0, reps, 4)
-draw <- c(0, 1, -1, 2)
-accept <- 0
-dens <- density(y, z, draw)
-oldDens <- dens$dens
-lambdaStart <- dens$lambdaHat
-lam <- matrix(0, reps, 4)
-
-for(i in 1:reps){
-  
-  candidate <- draw + 0.1 * rt(4, 2.5)
-  dens <- density(y, z, candidate, lambdaStart)
-  canDens <- dens$dens
-  alpha <- min(1, exp(canDens - oldDens))
-  if(runif(1) < alpha){
-    draw <- candidate
-    lambdaStart <- dens$lambdaHat
-    oldDens <- canDens
-    accept <- accept + 1
-  }
-  betelMCMC[i, ] <- draw
-  lam[i, ] <- lambdaStart
-}
-
-accept / reps
 
 betelMCMC %>%
-  as.tibble() %>%
-  rename(alpha = V1, beta = V2, nu = V3, `sigma^{2}` = V4) %>%
-  mutate(iter = seq_along(alpha)) %>%
   gather(var, draw, -iter) %>%
   ggplot() + geom_line(aes(iter, draw)) + facet_wrap(~var, scales = 'free', labeller = label_parsed)
   
 
 betelMCMC %>%
-  as.tibble() %>%
-  rename(alpha = V1, beta = V2, nu = V3, `sigma^{2}` = V4) %>%
-  mutate(iter = seq_along(alpha)) %>%
   filter(iter > 2500) %>%
   gather(var, draw, -iter) %>%
   ggplot() + geom_line(aes(draw), stat = 'density') + facet_wrap(~var, scales = 'free', labeller = label_parsed)
 
 
-trueDensity <- function(y, z, theta){
+trueDensity <- function(data, theta){
+  y <- data[,1]
+  z <- data[,2]
   dens <- 0.5 * 1 / sqrt(2 * pi * 0.75^2) * exp(-(y - theta[1] - theta[2] * z - 0.75)^2 / (2 * 0.75^2)) +
     0.5 * 1 / sqrt(2 * pi * 1.25^2) *  exp(-(y - theta[1] - theta[2] * z + 0.75)^2 / (2 * 1.75^2))
   sum(log(dens))
 }
 
-reps <- 10000
-trueMCMC <- matrix(0, reps, 2)
-draw <- c(0, 1)
-accept <- 0
-oldDens <- trueDensity(y, z, draw)
+trueMCMC <- metropolisHastings(start = c(alpha = 0, beta = 1),
+                               iter = 10000, 
+                               model = trueDensity,
+                               data = cbind(y, z))
 
-for(i in 1:reps){
-  candidate <- draw + 0.1 * rt(2, 2.5)
-  canDens <- trueDensity(y, z, candidate)
-  alpha <- min(1, exp(canDens - oldDens))
-  if(runif(1) < alpha){
-    draw <- candidate
-    oldDens <- canDens
-    accept <- accept + 1
-  }
-  trueMCMC[i, ] <- draw
-}
-accept / reps
 
 trueMCMC %>%
-  as.tibble() %>%
-  rename(alpha = V1, beta = V2) %>%
-  mutate(iter = seq_along(alpha)) %>%
   gather(var, draw, -iter) %>%
   ggplot() + geom_line(aes(iter, draw)) + facet_wrap(~var, scales = 'free')
 
 trueMCMC %>%
-  as.tibble() %>%
-  rename(alpha = V1, beta = V2) %>%
-  mutate(iter = seq_along(alpha)) %>%
   filter(iter > 2500) %>%
   gather(var, draw, -iter) %>%
   ggplot() + geom_line(aes(draw), stat = 'density') + facet_wrap(~var, scales = 'free')
 
 MCMCdraws <-
   rbind(trueMCMC %>%
-          as.tibble() %>%
-          rename(alpha = V1, beta = V2) %>%
-          mutate(iter = seq_along(alpha)) %>%
           filter(iter > 2500) %>%
           gather(var, draw, -iter) %>%
           mutate(method = 'MCMC-true'),
         betelMCMC %>%
-          as.tibble() %>%
-          rename(alpha = V1, beta = V2, nu = V3, `sigma^{2}` = V4) %>%
-          mutate(iter = seq_along(alpha)) %>%
           filter(iter > 2500) %>%
           gather(var, draw, -iter) %>%
           mutate(method = 'MCMC-empirical'))
@@ -148,7 +101,9 @@ ggplot(MCMCdraws) + geom_line(aes(draw, colour = method), stat = 'density') +
   geom_vline(data = data.frame(true = c(nu, var), method = 'MCMC-true', var = c('nu', 'sigma^{2}')), aes(xintercept = true, colour = method)) + 
   facet_wrap(~var, scales = 'free', labeller = label_parsed)
 
-reparamDeriv <- function(y, z, epsilon, lambda, lamStart){
+reparamDeriv <- function(data, lambda, epsilon){
+  y <- data[,1]
+  z <- data[,2]
   d <- length(epsilon)
   # Transform
   U <- matrix(lambda[(d+1):length(lambda)], d)
@@ -179,13 +134,23 @@ reparamDeriv <- function(y, z, epsilon, lambda, lamStart){
   g3 <- g1^3 - nu
   g4 <- g1^2 - sigma2
   g <- cbind(g1, g2, g3, g4)
+  
   minima <- nlm(hLinReg, rep(0, 4), g = g, hessian = TRUE)
   lambdaHat <- minima$estimate
   dh2dlam2 <- minima$hessian
   exponent <- c(exp(lambdaHat %*% t(g)))
   
+  dgdt <- vapply(1:n,
+                 function(x) matrix(c(-1, z[n], 0, 0,
+                                      -z[n], -z[n]^2, 0, 0,
+                                      -3 * g1[n]^2, -3 * z[n] * g1[n]^2, -1, 0,
+                                      -2 *g1[n], -2 * z[n] * g1[n], 0, -1),
+                                    nrow = 4,
+                                    byrow = TRUE),
+                 matrix(runif(16), 4))
+  
   # export numerical work to C++
-  gradients <- matrixCalculations(y, z, alpha, beta, g, dh2dlam2, lambdaHat, exponent)
+  gradients <- vbetelMatrixCalculations(g, dh2dlam2, lambdaHat, exponent, dgdt)
   dpdt <- gradients$grad
   logp <- gradients$val
   
@@ -195,83 +160,28 @@ reparamDeriv <- function(y, z, epsilon, lambda, lamStart){
   list(grad = dELBO, val = logp)
 }
 
-# Assumes dim(theta) = dim(g)
-fitBETEL <- function(y, z, lambda, model, S = 25, dimTheta = 3, zEpsilon = TRUE,
-                  maxIter = 5000, alpha = 0.01, beta1 = 0.9, beta2 = 0.99, threshold = 0.01){
-  if(!is.matrix(lambda)){
-    lambda <- matrix(lambda, ncol = 1)
-  }
-  dimLambda <- length(lambda)
-  
-  lambda <- cbind(lambda, matrix(0, dimLambda, maxIter))
-  
-  diff <- threshold + 1
-  iter <- 1
-  LB <- numeric(maxIter)
-  M <- V <- numeric(dimLambda)
-  e <- 1e-8
-  meanLB <- 0
-  oldMeanLB <- 0
-  while(diff > threshold){
-    if(iter > maxIter){
-      break
-    }
-    eval <- numeric(S)
-    grad <- matrix(0, dimLambda, S)
-    q <- numeric(S)
-    unif <- matrix(runif(S*dimTheta), ncol = dimTheta)
-    for(s in 1:S){
-      epsilon <- qnorm(unif[s,])
-      q <- sum(dnorm(epsilon, log = TRUE))
-     
-      logpj <- model(y, z, epsilon, as.matrix(lambda[,iter]), rep(0, dimTheta))
-      eval[s] <- logpj$val
-      grad[,s] <- logpj$grad
-    }
-    
-    eval[eval == -Inf] = NA
-    gradient <- rowMeans(grad, na.rm = TRUE)
-    gradientSq <- rowMeans(grad^2, na.rm = TRUE)
-    LB[iter] <- mean(eval - q, na.rm=TRUE) 
-    
-    M <- beta1 * M + (1 - beta1) * gradient
-    V <- beta2 * V + (1 - beta2) * gradientSq
-    Mstar <- M / (1 - beta1^iter)
-    Vstar <- V / (1 - beta2^iter)
-    update <- alpha * Mstar / (sqrt(Vstar) + e)
-    if(any(is.na(update))){
-      print('Break')
-      break
-    }
-    lambda[,iter + 1] <- lambda[, iter] + update
-    if(iter %% 5 == 0){
-      oldMeanLB <- meanLB
-      meanLB <- mean(LB[iter:(iter-4)])
-      diff <- abs(meanLB - oldMeanLB)
-    } 
-    if(iter %% 10 == 0){
-        print(paste0('Iteration: ', iter, ' ELBO: ', meanLB))
-    }
-    iter <- iter + 1
-  }
-  print(paste0('iter: ', min(iter-1, maxIter), ' ELBO: ', meanLB))
-  return(list(lambda=lambda, LB = LB[1:min(iter-1, maxIter)], iter = min(maxIter, iter-1)))
-}
-
 lambda <- c(0, 0, 0, 1, diag(0.1, 4))
-Rcpp::sourceCpp('BETELgrad.cpp')
 
-fit <- fitBETEL(y, z, lambda, reparamDeriv, alpha = 0.03, S = 3, dimTheta = 4, maxIter = 1000, threshold = 0.01)
+fit <- gaussianVB(data = cbind(y, z), 
+                  lambda = lambda, 
+                  model = reparamDeriv, 
+                  alpha = 0.03,
+                  S = 5, 
+                  dimEpsilon = 4,
+                  maxIter = 1000,
+                  RQMC = FALSE)
 
 
 qplot(1:fit$iter, fit$LB[1:fit$iter], geom = 'line')
 
 
-best <- which.max(fit$LB[1:fit$iter])
+U <- matrix(fit$lambda[5:20], 4)
+Sigma <- t(U) %*% U
 
-vbDens <- vbDensity(list(mean = fit$lambda[1:4, best], U = fit$lambda[5:20, best]),
-                     rep('identity', 4),
-                     c('alpha', 'beta', 'nu', 'sigma^{2}'))
+vbDens <- gaussianDensity(mu = fit$lambda[1:4], 
+                          sigma = sqrt(diag(Sigma)),
+                          transform = rep('identity', 4),
+                          names = c('alpha', 'beta', 'nu', 'sigma^{2}'))
 vbDens$method <- 'VB-Reparam'
 
 ggplot(MCMCdraws) + geom_line(aes(draw, colour = method), stat = 'density') + 
@@ -281,7 +191,6 @@ ggplot(MCMCdraws) + geom_line(aes(draw, colour = method), stat = 'density') +
 
 
 ### Stein
-Rcpp::sourceCpp('misc/particleVB.cpp')
 steinDeriv <- function(y, z, theta){
   
   # Calculate dpdt components
@@ -310,58 +219,8 @@ steinDeriv <- function(y, z, theta){
   list(grad = dpdt, val = logp)
 }
 
-steinVBWrapper <- function(y, z, particles, N, model = steinDeriv, h = 0.01, alpha = 1e-3, maxIter = 1000, threshold = 1e-3, ...){
-  
-  iter <- 1
-  LB <- rep(0, maxIter)
-  diff <- threshold + 1
-  M <- V <- rep(0, N)
-  e <- 1e-8
-  oldLB <- 0
-  
-  while(diff > threshold){
-    if(iter > maxIter){
-      break
-    }
-    
-    phiHat <- matrix(0, nrow(particles), ncol(particles))
-    logP <- matrix(0, N, ncol(particles))
-    elbo <- rep(0, N)
-    
-    for(i in 1:N){
-      stein <- model(y, z, particles[i, ], ...)
-      elbo[i] <- stein$val
-      logP[i, ] <- stein$grad
-    }
-    
-    for(i in 1:N){
-      for(j in 1:N){
-        kernel <- RBFKernel(particles[i, ], as.matrix(particles[j, ]), h)
-        phiHat[i, ] <- phiHat[i, ] + 1/N * (kernel$val * logP[j, ] + kernel$grad)
-      }
-    }
-    LB[iter] <- mean(elbo)
-    
-    particles <- particles + alpha * phiHat
-    
-    
-    if(iter %% 5 == 0){
-      meanLB <- mean(LB[iter:(iter- 4)])
-      diff <- abs(meanLB - oldLB)
-      oldLB <- meanLB
-    }
-    if(iter %% 25 == 0){
-      print(paste0('Iteration: ', iter, ', ELBO: ', meanLB))
-    }
-    
-    iter <- iter + 1
-  }
-  print(paste0('Converged at Iteration: ', iter - 1, ' at ELBO: ', meanLB))
-  particles
-}
-N <- 50
+N <- 75
 particles <- betelMCMC[sample(5001:10000, N), ] + matrix(rnorm(4 * N, 0, 0.35), ncol = 4)
-
 initial <- data.frame(particle = c(particles), var = rep(c('alpha', 'beta', 'nu', 'sigma^{2}'), rep(N, 4)))
 
 ggplot(MCMCdraws) + geom_line(aes(draw, colour = method), stat = 'density') + 
@@ -372,16 +231,23 @@ ggplot(MCMCdraws) + geom_line(aes(draw, colour = method), stat = 'density') +
 
 h <- 0.1
 
-fitStein <- steinVBWrapper(y, z, particles, N, maxIter = 1000, threshold = 0.05, alpha = 0.025)
+fitStein <- steinVB(particles = particles,
+                                 model = steinDeriv,
+                                 threshold = 0.01,
+                                 alpha = 0.025,
+                                 y = y,
+                                 z = z)
 
-steinVB <- data.frame(particle = c(fitStein), var = rep(c('alpha', 'beta', 'nu', 'sigma^{2}'), rep(N, 4)), method = 'VB-Stein')
+steinDf <- data.frame(particle = c(fitStein), var = rep(c('alpha', 'beta', 'nu', 'sigma^{2}'), rep(N, 4)), method = 'VB-Stein')
 
 cbPalette <- c("#000000", "#E69F00", "#2684B9", "#009E73", "#F0E442", "#0072B2", "#D55E00", "#CC79A7")
 MCMCdraws %>%
+ #filter(var != 'sigma^{2}') %>%
   mutate(method = ifelse(method == 'MCMC-true', 'MCMC-parametric', method)) %>%
   ggplot() + geom_line(aes(draw, colour = method), stat = 'density') +
   geom_vline(data = data.frame(value = c(nu, var), method = 'MCMC-parametric', var = c('nu', 'sigma^{2}')), aes(xintercept = value, colour = method)) + 
-  geom_line(data = steinVB, aes(particle, colour = method), stat = 'density') + 
+ # geom_vline(data = data.frame(value = nu, method = 'MCMC-parametric', var = 'nu'), aes(xintercept = value, colour = method)) + 
+  geom_line(data = steinDf , aes(particle, colour = method), stat = 'density') + 
   geom_line(data = vbDens, aes(support, density, colour = method)) +
   theme_bw() + 
   facet_wrap(~var, scales = 'free', label = label_parsed) + 
