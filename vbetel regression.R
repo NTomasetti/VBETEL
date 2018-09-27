@@ -1,5 +1,5 @@
 library(tidyverse)
-library(VBfunctions)
+library(VBfuns)
 
 N <- 250
 z <- rnorm(N, 0.5, 1)
