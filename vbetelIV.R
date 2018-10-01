@@ -91,8 +91,7 @@ for(N in Nseq){
     logJointM2 <- densityM2(data, thetaM2)
     estimM2[i] <- logJointM2 - log(postDensM2$estimate[indexM2[dim,1], indexM2[dim, 2], indexM2[dim, 3]])
   }
-  
-  mcmcDiff <- mean(estimM1) - mean(estimM2)
+  mcmcDiff <- mean(estimM1 - estimM2)
   
   lambda <- c(draw, diag(0.1, 3))
   
@@ -112,11 +111,11 @@ for(N in Nseq){
   UM1 <- matrix(fitM1$lambda[4:12], 3)
   SigmaM1 <- t(UM1) %*% UM1
   
-  vbDensM1 <- gaussianDensity(mu = fitM1$lambda[1:3], 
-                              sd = sqrt(diag(SigmaM1)),
-                              transform = rep('identity', 3),
-                              names = c('alpha', 'beta', 'delta'))
-  vbDensM1$method <- 'VB-M1'
+  #vbDensM1 <- gaussianDensity(mu = fitM1$lambda[1:3], 
+  #                            sd = sqrt(diag(SigmaM1)),
+  #                            transform = rep('identity', 3),
+  #                            names = c('alpha', 'beta', 'delta'))
+  #vbDensM1$method <- 'VB-M1'
   
   #ggplot(MCMCdraws) + geom_line(aes(draw, colour = method), stat = 'density') + 
   #  geom_line(data = vbDens, aes(support, density, colour = method)) + 
@@ -139,13 +138,13 @@ for(N in Nseq){
   UM2 <- matrix(fitM2$lambda[4:12], 3)
   SigmaM2 <- t(UM2) %*% UM2
   
-  vbDensM2 <- gaussianDensity(mu = fitM2$lambda[1:3], 
-                              sd = sqrt(diag(SigmaM2)),
-                              transform = rep('identity', 3),
-                              names = c('alpha', 'beta', 'delta'))
-  vbDensM2$method <- 'VB-M2'
+  #vbDensM2 <- gaussianDensity(mu = fitM2$lambda[1:3], 
+  #                            sd = sqrt(diag(SigmaM2)),
+  #                            transform = rep('identity', 3),
+  #                            names = c('alpha', 'beta', 'delta'))
+  #vbDensM2$method <- 'VB-M2'
   
-  vbDens <- rbind(vbDensM1, vbDensM2)
+  #vbDens <- rbind(vbDensM1, vbDensM2)
   
   #ggplot(MCMCdraws) + geom_line(aes(draw, colour = method), stat = 'density') + 
   #  geom_line(data = vbDens, aes(support, density, colour = method)) + 
@@ -172,5 +171,18 @@ for(N in Nseq){
 }
 
 write.csv(results, paste0('vbetel/id', iter, '.csv'), row.names = FALSE)
+
+results <- tibble()
+for(i in 1:100){
+  results <- rbind(results,
+                   read_csv(paste0('IVresults/id', i, '.csv'), col_types = cols()))
+}
+
+results %>%
+  gather(type, diff, -id, -N) %>%
+  ggplot() + geom_boxplot(aes(factor(N), diff, colour = type))
+
+
+
 
 

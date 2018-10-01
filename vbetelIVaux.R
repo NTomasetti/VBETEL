@@ -105,8 +105,10 @@ reparamDerivM1 <- function(data, lambda, epsilon){
   
   # export numerical work to C++
   gradients <- VBfuns::vbetelMatrixCalculations(g, dh2dlam2, lambdaHat, exponent, dgdt)
-  dpdt <- gradients$grad
-  logp <- gradients$val
+  prior <- gradScaleT(rep(5, 3), rep(2.5, 3), theta)
+  
+  dpdt <- gradients$grad + prior$grad
+  logp <- gradients$val + prior$val
   
   # Calculate the derivative of the  ELBO
   dELBO <- dtdl %*% dpdt + djdl
