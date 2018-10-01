@@ -141,16 +141,16 @@ reparamDeriv <- function(data, lambda, epsilon){
   exponent <- c(exp(lambdaHat %*% t(g)))
   
   dgdt <- vapply(1:n,
-                 function(x) matrix(c(-1, z[n], 0, 0,
-                                      -z[n], -z[n]^2, 0, 0,
-                                      -3 * g1[n]^2, -3 * z[n] * g1[n]^2, -1, 0,
-                                      -2 *g1[n], -2 * z[n] * g1[n], 0, -1),
+                 function(x) matrix(c(-1, z[x], 0, 0,
+                                      -z[x], -z[x]^2, 0, 0,
+                                      -3 * g1[x]^2, -3 * z[x] * g1[x]^2, -1, 0,
+                                      -2 *g1[x], -2 * z[x] * g1[x], 0, -1),
                                     nrow = 4,
                                     byrow = TRUE),
                  matrix(runif(16), 4))
   
   # export numerical work to C++
-  gradients <- vbetelMatrixCalculations(g, dh2dlam2, lambdaHat, exponent, dgdt)
+  gradients <- VBfuns::vbetelMatrixCalculations(g, dh2dlam2, lambdaHat, exponent, dgdt)
   dpdt <- gradients$grad
   logp <- gradients$val
   
@@ -160,14 +160,14 @@ reparamDeriv <- function(data, lambda, epsilon){
   list(grad = dELBO, val = logp)
 }
 
-lambda <- c(0, 0, 0, 1, diag(0.1, 4))
+lambda <- c(0, 1, -1, 1.5, diag(0.1, 4))
 
-fit <- gaussianVB(data = cbind(y, z), 
+fit <- reparamVB(data = cbind(y, z), 
                   lambda = lambda, 
                   model = reparamDeriv, 
                   alpha = 0.03,
                   S = 5, 
-                  dimEpsilon = 4,
+                  dimTheta = 4,
                   maxIter = 1000,
                   RQMC = FALSE)
 
@@ -179,7 +179,7 @@ U <- matrix(fit$lambda[5:20], 4)
 Sigma <- t(U) %*% U
 
 vbDens <- gaussianDensity(mu = fit$lambda[1:4], 
-                          sigma = sqrt(diag(Sigma)),
+                          sd = sqrt(diag(Sigma)),
                           transform = rep('identity', 4),
                           names = c('alpha', 'beta', 'nu', 'sigma^{2}'))
 vbDens$method <- 'VB-Reparam'
@@ -211,8 +211,17 @@ steinDeriv <- function(y, z, theta){
   dh2dlam2 <- minima$hessian
   exponent <- c(exp(lambdaHat %*% t(g)))
   
+  dgdt <- vapply(1:n,
+                 function(x) matrix(c(-1, -z[x], 0, 0,
+                                      -z[x], -z[x]^2, 0, 0,
+                                      -3 * g1[x]^2, -3 * z[x] * g1[x]^2, -1, 0,
+                                      -2 *g1[x], -2 * z[x] * g1[x], 0, -1),
+                                    nrow = 4,
+                                    byrow = TRUE),
+                 matrix(runif(16), 4))
+  
   # export numerical work to C++
-  gradients <- matrixCalculations(y, z, alpha, beta, g, dh2dlam2, lambdaHat, exponent)
+  gradients <- vbetelMatrixCalculations(g, dh2dlam2, lambdaHat, exponent, dgdt)
   dpdt <- gradients$grad
   logp <- gradients$val
   
