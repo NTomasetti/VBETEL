@@ -2,10 +2,16 @@ rm(list = ls())
 repenv <- Sys.getenv("SLURM_ARRAY_TASK_ID")
 iter <- as.numeric(repenv)
 
-library(VBfuns, lib.loc = 'packages')
+
 library(ks, lib.loc = 'packages')
 library(mvtnorm, lib.loc = 'packages')
 source('vbetelIVaux.R')
+source('reparamVB.R')
+source('metropolisHastings.R')
+library(Rcpp, lib.loc = 'packages')
+library(RcppArmadillo, lib.loc = 'packages')
+sourceCpp('vbetelMatrixCalculations.cpp')
+
 
 Nseq <- c(250, 1000, 2000)
 N <- max(Nseq)
@@ -34,45 +40,19 @@ for(N in Nseq){
   data <- dataFull[1:N,]
   draw <- c(alpha = 1, beta = 0.5, delta = 0.5)
   mcmcM1 <- metropolisHastings(start = draw, 
-                               iter = 10000, 
+                               iter = 20000, 
                                model = densityM1,
                                data = data,
                                stepsize = 0.1)
-  
-  #mcmcM1 %>%
-  #  gather(var, draw, -iter) %>%
-  #  ggplot() + geom_line(aes(iter, draw)) + facet_wrap(~var, scales = 'free', labeller = label_parsed)
-  
-  #mcmcM1 %>%
-  #  filter(iter > 5000) %>%
-  #  gather(var, draw, -iter) %>%
-  #  ggplot() + geom_line(aes(draw), stat = 'density') + facet_wrap(~var, scales = 'free', labeller = label_parsed)
-
+ 
   mcmcM2 <- metropolisHastings(start = draw, 
-                               iter = 10000, 
+                               iter = 20000, 
                                model = densityM2,
                                data = data,
                                stepsize = 0.1)
   
-  #mcmcM2 %>%
-  #  gather(var, draw, -iter) %>%
-  #  ggplot() + geom_line(aes(iter, draw)) + facet_wrap(~var, scales = 'free', labeller = label_parsed)
-  
-  #mcmcM2 %>%
-  #  filter(iter > 5000) %>%
-  #  gather(var, draw, -iter) %>%
-  #  ggplot() + geom_line(aes(draw), stat = 'density') + facet_wrap(~var, scales = 'free', labeller = label_parsed)
-  
-  #mcmcM1 %>%
-  #  filter(iter > 5000) %>%
-  #  gather(var, draw, -iter) %>%
-  #  rbind(mcmcM2 %>%
-  #          filter(iter > 5000) %>%
-  #          gather(var, draw, -iter)) %>% 
-  #  mutate(method = rep(c('MCMC-M1', 'MCMC-M2'), rep(15000, 2))) -> MCMCdraws
-  
-  postDensM1 <- kde(as.matrix(mcmcM1[seq(5001, 10000, 10),1:3]))
-  postDensM2 <- kde(as.matrix(mcmcM2[seq(5001, 10000, 10),1:3]))
+  postDensM1 <- kde(as.matrix(mcmcM1[seq(15001, 20000, 10),1:3]))
+  postDensM2 <- kde(as.matrix(mcmcM2[seq(15001, 20000, 10),1:3]))
   
   indexM1 <- which(postDensM1$estimate > 0, arr.ind = TRUE)
   estimM1 <- rep(0, 100)
@@ -91,7 +71,8 @@ for(N in Nseq){
     logJointM2 <- densityM2(data, thetaM2)
     estimM2[i] <- logJointM2 - log(postDensM2$estimate[indexM2[dim,1], indexM2[dim, 2], indexM2[dim, 3]])
   }
-  mcmcDiff <- mean(estimM1 - estimM2)
+  
+  mcmcDiff <- mean(estimM1) - mean(estimM2)
   
   lambda <- c(draw, diag(0.1, 3))
   
@@ -102,26 +83,12 @@ for(N in Nseq){
                      S = 10, 
                      dimTheta = 3,
                      maxIter = 1000,
-                     RQMC = FALSE)
-  
-  
-  #qplot(1:fitM1$iter, fitM1$LB[1:fitM1$iter], geom = 'line')
-  
+                     threshold = 0.0001 * N,
+                     RQMC = FALSE)  
   
   UM1 <- matrix(fitM1$lambda[4:12], 3)
   SigmaM1 <- t(UM1) %*% UM1
-  
-  #vbDensM1 <- gaussianDensity(mu = fitM1$lambda[1:3], 
-  #                            sd = sqrt(diag(SigmaM1)),
-  #                            transform = rep('identity', 3),
-  #                            names = c('alpha', 'beta', 'delta'))
-  #vbDensM1$method <- 'VB-M1'
-  
-  #ggplot(MCMCdraws) + geom_line(aes(draw, colour = method), stat = 'density') + 
-  #  geom_line(data = vbDens, aes(support, density, colour = method)) + 
-  #  facet_wrap(~var, scales = 'free', labeller = label_parsed)
-  
-  
+   
   fitM2 <- reparamVB(data = data,
                      lambda = lambda, 
                      model = reparamDerivM2, 
@@ -129,27 +96,12 @@ for(N in Nseq){
                      S = 10, 
                      dimTheta = 3,
                      maxIter = 1000,
-                     RQMC = FALSE)
-  
-  
-  #qplot(1:fitM2$iter, fitM2$LB[1:fitM2$iter], geom = 'line')
-  
+                     threshold = 0.0001 * N,
+                     RQMC = FALSE)  
   
   UM2 <- matrix(fitM2$lambda[4:12], 3)
   SigmaM2 <- t(UM2) %*% UM2
-  
-  #vbDensM2 <- gaussianDensity(mu = fitM2$lambda[1:3], 
-  #                            sd = sqrt(diag(SigmaM2)),
-  #                            transform = rep('identity', 3),
-  #                            names = c('alpha', 'beta', 'delta'))
-  #vbDensM2$method <- 'VB-M2'
-  
-  #vbDens <- rbind(vbDensM1, vbDensM2)
-  
-  #ggplot(MCMCdraws) + geom_line(aes(draw, colour = method), stat = 'density') + 
-  #  geom_line(data = vbDens, aes(support, density, colour = method)) + 
-  #  facet_wrap(~var, scales = 'free', labeller = label_parsed)
-  
+     
   tM1 <- rmvnorm(100, fitM1$lambda[1:3], SigmaM1)
   tM2 <- rmvnorm(100, fitM2$lambda[1:3], SigmaM2)
   
@@ -171,18 +123,5 @@ for(N in Nseq){
 }
 
 write.csv(results, paste0('vbetel/id', iter, '.csv'), row.names = FALSE)
-
-results <- tibble()
-for(i in 1:100){
-  results <- rbind(results,
-                   read_csv(paste0('IVresults/id', i, '.csv'), col_types = cols()))
-}
-
-results %>%
-  gather(type, diff, -id, -N) %>%
-  ggplot() + geom_boxplot(aes(factor(N), diff, colour = type))
-
-
-
 
 
